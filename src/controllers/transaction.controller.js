@@ -23,62 +23,6 @@ const initDB = asyncHandler(async (req, res)=>{
 })
 
 // Api to list all transactions with pagination and search
-
-// const listTransactions = asyncHandler(async (req, res)=>{
-//     const {page=1, perPage=10, search='', month} = req.query;
-
-//     const query = {};
-//     const monthL = month ? month.toLowerCase() : month;
-
-//     const test = await Transaction.find({
-//         dateOfSale: {
-//             $gte: new Date("2024-01-01T00:00:00.000Z"),
-//             $lte: new Date("2024-01-31T23:59:59.999Z")
-//         }
-//     });
-
-//     console.log("test: ", test);
-
-//     if(monthL){
-//         // const startDate = new Date(new Date().getFullYear(), new Date(Date.parse(month+' 1, 2000')).getMonth(), 1);
-//         // const endDate = new Date(new Date().getFullYear(), new Date(Date.parse(month+' 1, 2000')).getMonth()+1, 0);
-//         // query.dateOfSale = {$gte:startDate, $lte:endDate};
-
-//         const monthIndex = new Date(Date.parse(monthL + ' 1, 2000')).getMonth(); // Get month index (0-11)
-//         const startDate = new Date(Date.UTC(new Date().getFullYear(), monthIndex, 1)); // Start of the month in UTC
-//         const endDate = new Date(Date.UTC(new Date().getFullYear(), monthIndex + 1, 0, 23, 59, 59)); // End of the month in UTC
-
-//         console.log('Start Date:', startDate);
-//         console.log('End Date:', endDate);
-        
-//         query.dateOfSale = { $gte: startDate, $lte: endDate };
-//     }
-
-//     if(search){
-//         query.$or = [
-//             {title: {$regex:search, $options:'i'}},
-//             {description:{$regex:search, $options:'i'}},
-//             {price:parseFloat(search)}
-//         ]
-//     }
-
-//     const totalCount = await  Transaction.countDocuments(query);
-//     console.log('query: ', query);
-
-//     const transactions = await Transaction.find(query)
-//             // .limit(Number(perPage))
-//             // .skip((page-1)* perPage);
-//     console.log('transactions: ', transactions);
-    
-//     return res.status(200).json({
-//         page:Number(page),
-//         perPage:Number(perPage),
-//         totalCount:totalCount,
-//         transactions,
-//     })
-
-// })
-
 const listTransactions = asyncHandler(async (req, res) => {
     const { page = 1, perPage = 10, search = '', month } = req.query;
 
@@ -137,9 +81,194 @@ const listTransactions = asyncHandler(async (req, res) => {
 
 
 
+// Api for statisticts
+// const getStatistics = asyncHandler(async(req, res)=>{
+//     const {month} = req.query;
+
+//     // const startDate = new Date(new Date().getFullYear(), new Date(Date.parse(month+' 1, 2000')).getMonth(),1)
+//     // const endDate = new Date(new Date().getFullYear(), new Date(Date.parse(month+' 1, 2000')).getMonth()+1, 0);
+
+//     const startDate = new Date(new Date().getFullYear(), new Date(Date.parse(month + ' 1, 2000')).getMonth(), 1);
+//     const endDate = new Date(new Date().getFullYear(), new Date(Date.parse(month + ' 1, 2000')).getMonth() + 1, 0, 23, 59, 59);
+
+//     const totalSoldItems = await Transaction.countDocuments({sold:true, dateOfSale:{$gte:startDate, $lte:endDate}});
+//     const totalNotSoldItems = await Transaction.countDocuments({sold:false, dateOfSale:{$gte:startDate, $lte:endDate}})
+
+//     const totalSalesAmount = await Transaction.aggregate([
+//         {$match:{sold:true, dateOfSale:{ $gte: startDate, $lte: endDate }}},
+//         {$group:{_id:null, total:{$sum:"$price"}}}
+//     ])
+
+//     const response = {
+//         totalSoldItems,
+//         totalNotSoldItems,
+//         totalSalesAmount: totalSalesAmount.length > 0 ? totalSalesAmount[0].total : 0,
+//     }
+
+//     return res.status(200)
+//     .json(new ApiResponse(200, response, ""))
+// })
+
+const getStatistics = asyncHandler(async (req, res) => {
+    const { month } = req.query;
+
+    if (!month) {
+        return res.status(400).json(new ApiResponse(400, {}, "Month parameter is required"));
+    }
+
+    const normalizedMonth = month.toLowerCase();
+    // console.log("Normalized month:", normalizedMonth);
+
+    const monthIndex = new Date(Date.parse(normalizedMonth + ' 1, 2000')).getMonth() + 1; // MongoDB months are 1-based
+    // console.log("monthIndex (1-based): ", monthIndex);
+
+    // Create a query object
+    const query = {
+        $expr: {
+            $and: [
+                { $eq: [{ $month: "$dateOfSale" }, monthIndex] }, // Match month
+                { $gte: [{ $dayOfMonth: "$dateOfSale" }, 1] }, // Match day from 1
+                { $lte: [{ $dayOfMonth: "$dateOfSale" }, 31] } // Match day up to 31
+            ]
+        }
+    };
+
+
+    // Count total sold items
+    const totalSoldItems = await Transaction.countDocuments({ sold: true, ...query });
+    // console.log("totalSoldItems->", totalSoldItems);
+
+    // Count total not sold items
+    const totalNotSoldItems = await Transaction.countDocuments({
+        sold: false,
+        ...query
+    });
+    
+    // console.log("totalNotSoldItems->", totalNotSoldItems);
+
+    // Aggregate total sales amount for sold items
+    const totalSalesAmount = await Transaction.aggregate([
+        { $match: { sold: true, ...query } },
+        { $group: { _id: null, total: { $sum: "$price" } } }
+    ]);
+
+    console.log("Total Sales Amount:", totalSalesAmount);
+
+    const response = {
+        totalSoldItems,
+        totalNotSoldItems,
+        totalSalesAmount: totalSalesAmount.length > 0 ? totalSalesAmount[0].total : 0,
+    };
+
+    return res.status(200).json(new ApiResponse(200, response, "Statistics fetched successfully!"));
+});
+
+
+// Api for bar chart
+
+// const getDataForBarChart = asyncHandler(async(req, res)=>{
+//     const {month} = req.query;
+
+//     if (!month) {
+//         return res.status(400).json(new ApiResponse(400, {}, "Month parameter is required"));
+//     }
+
+//     const normalizedMonth = month.toLowerCase();
+//     // console.log("Normalized month:", normalizedMonth);
+
+//     const monthIndex = new Date(Date.parse(normalizedMonth + ' 1, 2000')).getMonth() + 1; // MongoDB months are 1-based
+//     // console.log("monthIndex (1-based): ", monthIndex);
+
+//     // Create a query object
+//     const query = {
+//         $expr: {
+//             $and: [
+//                 { $eq: [{ $month: "$dateOfSale" }, monthIndex] }, // Match month
+//                 { $gte: [{ $dayOfMonth: "$dateOfSale" }, 1] }, // Match day from 1
+//                 { $lte: [{ $dayOfMonth: "$dateOfSale" }, 31] } // Match day up to 31
+//             ]
+//         }
+//     };
+
+//     const priceRanges = [
+//         { min: 0, max: 100 },
+//         { min: 101, max: 200 },
+//         { min: 201, max: 300 },
+//         { min: 301, max: 400 },
+//         { min: 401, max: 500 },
+//         { min: 501, max: 600 },
+//         { min: 601, max: 700 },
+//         { min: 701, max: 800 },
+//         { min: 801, max: 900 },
+//         { min: 901, max: Infinity }
+//     ];
+
+//     const result = await Promise.all(priceRanges.map(async (range)=>{
+//         const count = await Transaction.countDocuments({
+//             price:{$gte:range.min, $lte:range.max},
+//             dateOfSale:{$gte:startDate, $lte:endDate}
+//         })
+//         return {range: `${range.min}-${range.max}`, count};
+//     }))
+
+//     res.status(200)
+//     .json(new ApiResponse(200, result, "data for bar chart fetched succussfully!"))
+
+// })
+
+const getDataForBarChart = asyncHandler(async (req, res) => {
+    const { month } = req.query;
+
+    if (!month) {
+        return res.status(400).json(new ApiResponse(400, {}, "Month parameter is required"));
+    }
+
+    const normalizedMonth = month.toLowerCase();
+    const monthIndex = new Date(Date.parse(normalizedMonth + ' 1, 2000')).getMonth() + 1; // MongoDB months are 1-based
+
+    // Create a query object to match transactions for the specified month
+    const query = {
+        $expr: {
+            $and: [
+                { $eq: [{ $month: "$dateOfSale" }, monthIndex] }, // Match month
+                { $gte: [{ $dayOfMonth: "$dateOfSale" }, 1] }, // Match day from 1
+                { $lte: [{ $dayOfMonth: "$dateOfSale" }, 31] } // Match day up to 31
+            ]
+        }
+    };
+
+    const priceRanges = [
+        { min: 0, max: 100 },
+        { min: 101, max: 200 },
+        { min: 201, max: 300 },
+        { min: 301, max: 400 },
+        { min: 401, max: 500 },
+        { min: 501, max: 600 },
+        { min: 601, max: 700 },
+        { min: 701, max: 800 },
+        { min: 801, max: 900 },
+        { min: 901, max: Infinity }
+    ];
+
+    // Use Promise.all to count transactions for each price range
+    const result = await Promise.all(priceRanges.map(async (range) => {
+        const count = await Transaction.countDocuments({
+            price: { $gte: range.min, $lte: range.max },
+            ...query
+        });
+        return { range: `${range.min}-${range.max}`, count };
+    }));
+
+    return res.status(200)
+        .json(new ApiResponse(200, result, "Data for bar chart fetched successfully!"));
+});
+
+
 
 
 export  {
     initDB,
     listTransactions,
+    getStatistics,
+    getDataForBarChart,
 }
