@@ -1,6 +1,7 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { Transaction } from "../models/transaction.model.js";
 import ApiResponse from "../utils/ApiResponse.js";
+import apiCall from "../middleware/apiCall.middleware.js";
 import axios from 'axios';
 
 
@@ -82,33 +83,6 @@ const listTransactions = asyncHandler(async (req, res) => {
 
 
 // Api for statisticts
-// const getStatistics = asyncHandler(async(req, res)=>{
-//     const {month} = req.query;
-
-//     // const startDate = new Date(new Date().getFullYear(), new Date(Date.parse(month+' 1, 2000')).getMonth(),1)
-//     // const endDate = new Date(new Date().getFullYear(), new Date(Date.parse(month+' 1, 2000')).getMonth()+1, 0);
-
-//     const startDate = new Date(new Date().getFullYear(), new Date(Date.parse(month + ' 1, 2000')).getMonth(), 1);
-//     const endDate = new Date(new Date().getFullYear(), new Date(Date.parse(month + ' 1, 2000')).getMonth() + 1, 0, 23, 59, 59);
-
-//     const totalSoldItems = await Transaction.countDocuments({sold:true, dateOfSale:{$gte:startDate, $lte:endDate}});
-//     const totalNotSoldItems = await Transaction.countDocuments({sold:false, dateOfSale:{$gte:startDate, $lte:endDate}})
-
-//     const totalSalesAmount = await Transaction.aggregate([
-//         {$match:{sold:true, dateOfSale:{ $gte: startDate, $lte: endDate }}},
-//         {$group:{_id:null, total:{$sum:"$price"}}}
-//     ])
-
-//     const response = {
-//         totalSoldItems,
-//         totalNotSoldItems,
-//         totalSalesAmount: totalSalesAmount.length > 0 ? totalSalesAmount[0].total : 0,
-//     }
-
-//     return res.status(200)
-//     .json(new ApiResponse(200, response, ""))
-// })
-
 const getStatistics = asyncHandler(async (req, res) => {
     const { month } = req.query;
 
@@ -165,57 +139,6 @@ const getStatistics = asyncHandler(async (req, res) => {
 
 
 // Api for bar chart
-
-// const getDataForBarChart = asyncHandler(async(req, res)=>{
-//     const {month} = req.query;
-
-//     if (!month) {
-//         return res.status(400).json(new ApiResponse(400, {}, "Month parameter is required"));
-//     }
-
-//     const normalizedMonth = month.toLowerCase();
-//     // console.log("Normalized month:", normalizedMonth);
-
-//     const monthIndex = new Date(Date.parse(normalizedMonth + ' 1, 2000')).getMonth() + 1; // MongoDB months are 1-based
-//     // console.log("monthIndex (1-based): ", monthIndex);
-
-//     // Create a query object
-//     const query = {
-//         $expr: {
-//             $and: [
-//                 { $eq: [{ $month: "$dateOfSale" }, monthIndex] }, // Match month
-//                 { $gte: [{ $dayOfMonth: "$dateOfSale" }, 1] }, // Match day from 1
-//                 { $lte: [{ $dayOfMonth: "$dateOfSale" }, 31] } // Match day up to 31
-//             ]
-//         }
-//     };
-
-//     const priceRanges = [
-//         { min: 0, max: 100 },
-//         { min: 101, max: 200 },
-//         { min: 201, max: 300 },
-//         { min: 301, max: 400 },
-//         { min: 401, max: 500 },
-//         { min: 501, max: 600 },
-//         { min: 601, max: 700 },
-//         { min: 701, max: 800 },
-//         { min: 801, max: 900 },
-//         { min: 901, max: Infinity }
-//     ];
-
-//     const result = await Promise.all(priceRanges.map(async (range)=>{
-//         const count = await Transaction.countDocuments({
-//             price:{$gte:range.min, $lte:range.max},
-//             dateOfSale:{$gte:startDate, $lte:endDate}
-//         })
-//         return {range: `${range.min}-${range.max}`, count};
-//     }))
-
-//     res.status(200)
-//     .json(new ApiResponse(200, result, "data for bar chart fetched succussfully!"))
-
-// })
-
 const getDataForBarChart = asyncHandler(async (req, res) => {
     const { month } = req.query;
 
@@ -263,6 +186,98 @@ const getDataForBarChart = asyncHandler(async (req, res) => {
         .json(new ApiResponse(200, result, "Data for bar chart fetched successfully!"));
 });
 
+// Api for pie chart
+const getPieChartData = asyncHandler(async (req, res) => {
+    const { month } = req.query;
+
+    if (!month) {
+        return res.status(400).json(new ApiResponse(400, {}, "Month parameter is required"));
+    }
+
+    const normalizedMonth = month.toLowerCase();
+    const monthIndex = new Date(Date.parse(normalizedMonth + ' 1, 2000')).getMonth() + 1; // MongoDB months are 1-based
+
+    // Create a query object to match transactions for the specified month
+    const query = {
+        $expr: {
+            $and: [
+                { $eq: [{ $month: "$dateOfSale" }, monthIndex] },
+                { $gte: [{ $dayOfMonth: "$dateOfSale" }, 1] },
+                { $lte: [{ $dayOfMonth: "$dateOfSale" }, 31] }
+            ]
+        }
+    };
+
+    // Use aggregation to group by category and count occurrences
+    const result = await Transaction.aggregate([
+        { $match: query }, // Match the transactions for the specified month
+        { 
+            $group: { 
+                _id: "$category", // Group by the category field
+                count: { $sum: 1 } // Count the occurrences
+            }
+        },
+        { 
+            $project: { 
+                categoryName: "$_id", // Rename _id to categoryName
+                count: 1, // Keep the count
+                _id: 0 // Exclude the original _id field
+            } 
+        }
+    ]);
+
+    return res.status(200).json(new ApiResponse(200, result, "Data for pie chart fetched successfully!"));
+});
+
+
+// Api to fetch data from all three api
+
+const combinedResponse = async (req, res) => {
+    try {
+        const { month } = req.query;
+
+        // Log to check if req and res are working properly
+        console.log('Starting combinedResponse...');
+
+        // Call the APIs and capture their results
+        const [statistics, barChart, pieChart] = await Promise.all([
+            apiCall(getStatistics, req),  // Call each function with the temporary response
+            apiCall(getDataForBarChart, req),
+            apiCall(getPieChartData, req),
+        ]);
+
+        // Log the data received from the API calls
+        console.log('Statistics:', statistics);
+        console.log('BarChart:', barChart);
+        console.log('PieChart:', pieChart);
+
+        const combinedData = {
+            statistics: statistics.data,
+            barChart: barChart.data,
+            pieChart: pieChart.data
+        };
+
+        // Combine the responses and send a single JSON response
+        return res.status(200).json(
+            new ApiResponse(200, combinedData, "Combined response fetched successfully")
+        );
+    } catch (error) {
+        console.error("Error in combinedResponse:", error);
+        return res.status(500).json(new ApiResponse(500, {}, "An error occurred"));
+    }
+};
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -271,4 +286,6 @@ export  {
     listTransactions,
     getStatistics,
     getDataForBarChart,
+    getPieChartData,
+    combinedResponse,
 }
