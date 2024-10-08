@@ -15,10 +15,8 @@ app.use(express.static("public"))
 app.use(cookieParser())
 
 // routes import  
-import userRouter from './routes/user.routes.js';
 import transactionRouter from './routes/transaction.routes.js'
 
-app.use("/api/v2/users", userRouter)
 app.use("/api/v2/transaction", transactionRouter)
 
 
