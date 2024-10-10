@@ -84,7 +84,7 @@ const getStatistics = asyncHandler(async (req, res) => {
 
     const normalizedMonth = month.toLowerCase();
 
-    const monthIndex = new Date(Date.parse(normalizedMonth + ' 1, 2000')).getMonth() + 1; // MongoDB months are 1-based
+    const monthIndex = new Date(Date.parse(normalizedMonth + ' 1, 2000')).getMonth() + 1; 
 
     const query = {
         $expr: {
