@@ -23,7 +23,7 @@ This is a backend project developed using Node.js, Express, and MongoDB. The pro
 PORT=8000
 
 MONGODB_URI=mongodb+srv://<username>:<password>@seeddata1.mv5ya.mongodb.net/?retryWrites=true&w=majority&appName=seeddata1
-
+THIRD_PARTY_API_URL=<Third-party-api-url-here>
 CORS_ORIGIN=*
 
 
